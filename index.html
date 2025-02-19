@@ -41,10 +41,28 @@
     <script>
         let mediaRecorder;
         let audioChunks = [];
+        let stream;
 
-        document.getElementById("recordButton").addEventListener("click", async function() {
-            if (!mediaRecorder || mediaRecorder.state === "inactive") {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        async function checkPermissions() {
+            try {
+                const permission = await navigator.permissions.query({ name: "microphone" });
+                if (permission.state === "denied") {
+                    alert("Microphone access is blocked. Please enable it in your browser settings.");
+                }
+            } catch (error) {
+                console.warn("Permission API not supported.");
+            }
+        }
+
+        async function startRecording() {
+            try {
+                // Ensure microphone access
+                stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+                // Workaround for iOS Safari
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const source = audioContext.createMediaStreamSource(stream);
+
                 mediaRecorder = new MediaRecorder(stream);
                 audioChunks = [];
 
@@ -58,10 +76,26 @@
                 };
 
                 mediaRecorder.start();
-                this.textContent = "Stop Recording";
-            } else {
+                document.getElementById("recordButton").textContent = "Stop Recording";
+            } catch (error) {
+                alert("Error accessing microphone: " + error.message);
+                console.error("Microphone error:", error);
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && mediaRecorder.state !== "inactive") {
                 mediaRecorder.stop();
-                this.textContent = "Start Recording";
+                document.getElementById("recordButton").textContent = "Start Recording";
+                stream.getTracks().forEach(track => track.stop()); // Stop microphone access
+            }
+        }
+
+        document.getElementById("recordButton").addEventListener("click", async function() {
+            if (!mediaRecorder || mediaRecorder.state === "inactive") {
+                await startRecording();
+            } else {
+                stopRecording();
             }
         });
 
@@ -72,25 +106,35 @@
             formData.append("language_code", "en-IN");
             formData.append("with_timesteps", "false");
 
-            const response = await fetch("https://api.sarvam.ai/speech-to-text", {
-                method: "POST",
-                headers: {
-                    "api-subscription-key": "ef40f987-8455-411d-8d95-2611e364f00d"
-                },
-                body: formData
-            });
+            try {
+                const response = await fetch("https://api.sarvam.ai/speech-to-text", {
+                    method: "POST",
+                    headers: {
+                        "api-subscription-key": "ef40f987-8455-411d-8d95-2611e364f00d"
+                    },
+                    body: formData
+                });
 
-            const data = await response.json();
-            document.getElementById("transcript").textContent = "Transcript: " + data.transcript;
-            document.getElementById("copyButton").style.display = "block";
+                const data = await response.json();
+                document.getElementById("transcript").textContent = "Transcript: " + (data.transcript || "No text recognized.");
+                document.getElementById("copyButton").style.display = "block";
+            } catch (error) {
+                alert("Failed to upload audio: " + error.message);
+                console.error("Upload error:", error);
+            }
         }
 
         document.getElementById("copyButton").addEventListener("click", function() {
             const transcriptText = document.getElementById("transcript").textContent.replace("Transcript: ", "");
             navigator.clipboard.writeText(transcriptText).then(() => {
                 alert("Transcript copied to clipboard!");
+            }).catch(error => {
+                alert("Failed to copy text: " + error.message);
             });
         });
+
+        // Check microphone permissions on page load
+        checkPermissions();
     </script>
 </body>
 </html>
